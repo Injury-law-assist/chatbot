@@ -1,7 +1,9 @@
-const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
-require("dotenv").config();
+import axios from "axios";
+import { config } from "dotenv";
+import fs from "fs";
+import path from "path";
+
+config();
 const secretKey = process.env.OPEN_API_SECRET_KEY;
 
 const kinda = new Array();
@@ -16,7 +18,7 @@ const getKinda = async () => {
         for (let e of items.item) {
             kinda.push(e);
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error:", err.message);
     }
 };
@@ -27,7 +29,7 @@ const getKindb = async () => {
         for (let e of items.item) {
             kindb.push(e);
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error:", err.message);
     }
 };
@@ -42,12 +44,12 @@ const getKindc = async () => {
         for (let e of items.item) {
             kindc.push(e);
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error:", err.message);
     }
 };
 
-const batchProcessJudicialPrecedent = async (kind) => {
+const batchProcessJudicialPrecedent = async (kind: any) => {
     try {
         const [{ kinda }, { kindb }, { kindc }] = kind;
         // console.log(kind);
@@ -80,12 +82,12 @@ const batchProcessJudicialPrecedent = async (kind) => {
             // JSON 파일에 다시 저장
             fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error:", err.message);
     }
 };
 
-async function main() {
+export default async function batchProcessOpenApi() {
     await getKinda();
     await getKindb();
     await getKindc();

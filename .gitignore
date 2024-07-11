@@ -3,3 +3,9 @@ run.js
 .env
 output.jsonl
 train_data
+client-test*
+finetun*
+server.ex*
+spli*
+ttype*
+*.js
