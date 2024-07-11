@@ -105,4 +105,7 @@ async function main() {
     }
 }
 
+/**
+ * 한달 간격으로 scheduler batch processing
+ */
 //main();
