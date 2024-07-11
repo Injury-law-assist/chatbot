@@ -1,5 +1,9 @@
+const OpenAI = require("openai");
 const fs = require("fs");
 const path = require("path");
+const openai = new OpenAI({
+    apiKey: "sk-proj-fczZ56aasfTJroJZQ8TWT3BlbkFJkuItzLbnxVcpdfl3n0oH",
+});
 
 // JSON Lines 파일 생성 함수
 async function createJsonLinesFile(inputFilePath, outputFilePath) {
@@ -66,13 +70,14 @@ async function loadTrainFile() {
         file: fs.createReadStream("./out/output.jsonl"),
         purpose: "fine-tune",
     });
+    console.log(file);
     return file.id;
 }
 
 /** upload */
 async function startFineTuning(fileId) {
     let fineTune = await openai.fineTuning.jobs.create({
-        model: "gpt-3.5-turbo",
+        model: "ft:gpt-3.5-turbo-0125:personal::9jiz7x0F",
         training_file: fileId,
         hyperparameters: {
             n_epochs: 1,
@@ -89,12 +94,17 @@ async function getStatusForFineTuning(jobId) {
     console.log(events);
 }
 
-async function main() {
-    const filePath = path.join(__dirname, "./train_data/subresult_1.json"); // 입력 파일 경로 설정
+async function run({ trainDataPath }) {
+    const filePath = path.join(__dirname, trainDataPath); // 입력 파일 경로 설정
     const outputFilePath = path.join(__dirname, "./out/output.jsonl"); // 출력 파일 경로 설정
 
     await createJsonLinesFile(filePath, outputFilePath);
     const fileId = await loadTrainFile();
     const jobId = await startFineTuning(fileId);
     await getStatusForFineTuning(jobId);
+    // await getStatusForFineTuning("ftjob-EwQSFJE57MvbBUe1ktZ8D69g");
 }
+(async () => {
+    // await run({ trainDataPath: "./train_data/subresult_100.json" });
+    await getStatusForFineTuning("ftjob-CHpZX1q7BTIWHPv4MUqeLiPb");
+})();
