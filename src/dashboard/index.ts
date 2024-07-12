@@ -7,11 +7,12 @@ import Container from "typedi";
 
 export default () => {
     const chatQueue: Bull.Queue = Container.get("chatQueue");
+    const processQueue: Bull.Queue = Container.get("processQueue");
 
     const serverAdapter = new ExpressAdapter();
     serverAdapter.setBasePath("/admin/queues");
     createBullBoard({
-        queues: [new BullAdapter(chatQueue)],
+        queues: [new BullAdapter(chatQueue), new BullAdapter(processQueue)],
         serverAdapter: serverAdapter,
     });
 
