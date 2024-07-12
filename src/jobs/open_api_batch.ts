@@ -65,7 +65,7 @@ const batchProcessJudicialPrecedent = async (kind: any) => {
             );
             const items = res.data.response.body.items;
             // // JSON 파일에 append
-            const filePath = path.join(__dirname, "result.json");
+            const filePath = path.join("./train_data/result.json");
             let data = [];
 
             // 파일이 존재하면 기존 데이터를 읽어옴
@@ -86,6 +86,42 @@ const batchProcessJudicialPrecedent = async (kind: any) => {
         console.error("Error:", err.message);
     }
 };
+async function splitTrainData() {
+    const filePath = path.join("./train_data/result.json");
+    fs.readFile(filePath, "utf8", (err, data) => {
+        if (err) {
+            console.error("Error reading file:", err);
+            return;
+        }
+
+        try {
+            const jsonData = JSON.parse(data);
+            let allItems: any = [];
+            for (const item of jsonData) {
+                if (Array.isArray(item)) {
+                    allItems = allItems.concat(item);
+                } else {
+                    allItems.push(item);
+                }
+            }
+
+            const batchSize = 100;
+            const numBatches = Math.ceil(allItems.length / batchSize);
+            for (let i = 0; i < numBatches; i++) {
+                const startIndex = i * batchSize;
+                const endIndex = Math.min(startIndex + batchSize, allItems.length);
+                const batch = allItems.slice(startIndex, endIndex);
+                const subJsonData = JSON.stringify(batch, null, 2);
+                const filename = `./train_data/subresult_${i + 1}.json`;
+                const subFilePath = path.join(__dirname, filename);
+                fs.writeFileSync(subFilePath, subJsonData, "utf8");
+                console.log(`Subfile ${filename} has been saved.`);
+            }
+        } catch (parseError) {
+            console.error("Error parsing JSON:", parseError);
+        }
+    });
+}
 
 export default async function batchProcessOpenApi() {
     await getKinda();
@@ -105,6 +141,7 @@ export default async function batchProcessOpenApi() {
     for (const elements of result) {
         await batchProcessJudicialPrecedent(elements);
     }
+    await splitTrainData();
 }
 
 /**
