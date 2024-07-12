@@ -13,39 +13,51 @@ interface AnswerMessage {
     answer: string;
 }
 
-/**
- * @description
- * 이 부분은 서버로 부터 답변을 받을 때 이벤트를 발생 시킨다.
- */
-socket.on("chat message", ({ roomId, msg }) => {
-    console.log(`${msg.sender}: ${msg.answer}`);
-});
+// readline 인터페이스 생성
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
 });
 
-async function sendMessage() {
-    rl.question("Enter your message: ", (message: string) => {
-        const sender = "Node Client"; // user 이름 / user Id 뭘로 할지는 아직 못정함
-        const questionMessage: QuestionMessage = { sender, question: message };
+// 서버로부터 메시지 수신 처리
+socket.on("connect", () => {
+    console.log(`Connected with ID: ${socket.id}`);
 
-        /**
-         * NOTE: 아래가 보내는 코드는
-         * server로 보내는 코드
-         * */
-        socket.emit("chat message", { roomId: 1, msg: questionMessage });
+    // 특정 방에 참여
+    const roomId = 2; // 예제 방 번호, 서버에서 설정한 방 번호와 맞아야 합니다.
+    socket.emit("join room", roomId);
 
-        sendMessage();
-        //반복해서 입력 받기 <-- client에 들어갈 때는 필요없음
+    // 서버로부터 메시지 수신 처리
+    socket.on("chat message", (data) => {
+        console.log(`${data.msg.sender}: ${data.msg.answer}`);
     });
-}
-(async function main() {
-    await sendMessage();
 
+    // 사용자 입력을 받아 서버로 메시지 전송
+    async function sendMessage() {
+        rl.question("Enter your message: ", (message: string) => {
+            const sender = "Node Client";
+            const questionMessage: QuestionMessage = { sender, question: message };
+
+            // 서버로 메시지 전송
+            socket.emit("chat message", { roomId, msg: questionMessage });
+
+            // 다음 메시지 입력 대기
+            sendMessage();
+        });
+    }
+
+    // 시작
+    sendMessage();
+
+    // Ctrl+C 처리
     rl.on("SIGINT", () => {
         rl.close();
         socket.disconnect();
         process.exit(0);
     });
-})();
+});
+
+// 서버와 연결이 끊어졌을 때
+socket.on("disconnect", () => {
+    console.log("Disconnected from server");
+});
