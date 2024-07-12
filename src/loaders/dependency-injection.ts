@@ -2,7 +2,8 @@ import Bull from "bull";
 import OpenAI from "openai";
 import Container from "typedi";
 import QueueMap from "../types/Queue";
-export default async function dependencyInjectionLoader({ openai, queue }: { openai: OpenAI; queue: QueueMap }) {
+import { Pool } from "mysql2/promise";
+export default async function dependencyInjectionLoader({ openai, queue, pool }: { openai: OpenAI; queue: QueueMap; pool: Pool }) {
     Container.set("openai", openai);
     Object.entries(queue).forEach(([key, queue]) => {
         try {
@@ -13,4 +14,6 @@ export default async function dependencyInjectionLoader({ openai, queue }: { ope
             throw error;
         }
     });
+
+    Container.set("pool", pool);
 }
