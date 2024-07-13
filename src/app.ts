@@ -3,6 +3,6 @@ import express from "express";
 import loaders from "./loaders";
 export default async function createApp() {
     const app = express();
-    loaders({ app });
+    await loaders({ app });
     return app;
 }
