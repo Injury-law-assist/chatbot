@@ -9,17 +9,35 @@ import ChatRoomInfo from "../types/Chat";
 
 export function init(server: http.Server) {
     const io = new Server(server, {
+        path: "/bot",
         cors: {
             origin: "*",
             methods: ["GET", "POST"],
             credentials: true,
         },
     });
+    const queue: Bull.Queue = Container.get("chatQueue");
+    const chatService: ChatService = Container.get(ChatService);
+    const pool: Pool = Container.get("pool");
 
-    io.on("connection", async (socket: Socket) => {
-        const queue: Bull.Queue = Container.get("chatQueue");
-        const chatService: ChatService = Container.get(ChatService);
+    queue.process("process message", async (job) => {
+        const { roomId, userId, question } = job.data as { roomId: number; userId: number; question: string };
+
         const pool: Pool = Container.get("pool");
+        const connection = await pool.getConnection();
+
+        try {
+            // 메시지 데이터베이스에 저장
+            await connection.query(`INSERT INTO messages (cr_id, u_id, m_content) VALUES (?, ?, ?)`, [roomId, userId, question]);
+
+            console.log(`Message from room ${roomId} saved to database.`);
+        } catch (error) {
+            console.error("Error saving message to database:", error);
+        } finally {
+            connection.release();
+        }
+    });
+    io.on("connection", async (socket: Socket) => {
         let chatRoomInfo: ChatRoomInfo | null = null;
         console.log("user connected");
 
@@ -30,7 +48,7 @@ export function init(server: http.Server) {
 
             const connection = await pool.getConnection();
             try {
-                const sql = `SELECT u_id, u_nickname, cr.title AS cr_name 
+                const sql = `SELECT u.u_id, u_nickname, cr.title AS cr_name 
                     FROM chatRooms cr, users u 
                     WHERE cr.u_id = u.u_id AND cr.cr_id = ? 
                     LIMIT 1`;
@@ -64,29 +82,11 @@ export function init(server: http.Server) {
             };
             // 특정 방에 있는 모든 클라이언트에게 메시지 보내기
             io.to(`room-${roomId}`).emit("chat message", { roomId, answerMessage: answerMessage });
-            await queue.add("process message", {
+            await queue.add("save message", {
                 roomId,
                 userId: chatRoomInfo.userId,
                 question: answerMessage.answer,
             });
-        });
-
-        queue.process("process message", async (job) => {
-            const { roomId, userId, question } = job.data as { roomId: number; userId: number; question: string };
-
-            const pool: Pool = Container.get("pool");
-            const connection = await pool.getConnection();
-
-            try {
-                // 메시지 데이터베이스에 저장
-                await connection.query(`INSERT INTO messages (cr_id, u_id, m_content) VALUES (?, ?, ?)`, [roomId, userId, question]);
-
-                console.log(`Message from room ${roomId} saved to database.`);
-            } catch (error) {
-                console.error("Error saving message to database:", error);
-            } finally {
-                connection.release();
-            }
         });
 
         socket.on("disconnect", () => {
