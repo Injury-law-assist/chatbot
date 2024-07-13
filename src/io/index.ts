@@ -1,7 +1,7 @@
 import Bull from "bull";
 import http from "http";
 import { Server, Socket } from "socket.io";
-import Container from "typedi";
+import { Container } from "typedi";
 import ChatService from "../services/chat";
 import { AnswerMessage, QuestionMessage } from "../types/Message";
 import { Pool } from "mysql2/promise";
@@ -20,19 +20,25 @@ export function init(server: http.Server) {
     const chatService: ChatService = Container.get(ChatService);
     const pool: Pool = Container.get("pool");
 
-    queue.process("process message", async (job) => {
-        const { roomId, userId, question } = job.data as { roomId: number; userId: number; question: string };
+    queue.process("save message", async (job) => {
+        const { roomId, userId, question, answer } = job.data as { roomId: number; userId: number; question: string; answer: string };
 
         const pool: Pool = Container.get("pool");
         const connection = await pool.getConnection();
 
         try {
+            await connection.beginTransaction(); // 트랜잭션 시작
+
             // 메시지 데이터베이스에 저장
             await connection.query(`INSERT INTO messages (cr_id, u_id, m_content) VALUES (?, ?, ?)`, [roomId, userId, question]);
+            await connection.query(`INSERT INTO messages (cr_id, u_id, m_content) VALUES (?, ?, ?)`, [roomId, userId, answer]);
 
+            await connection.commit(); // 성공 시 트랜잭션 커밋
             console.log(`Message from room ${roomId} saved to database.`);
         } catch (error) {
-            console.error("Error saving message to database:", error);
+            await connection.rollback(); // 실패 시 트랜잭션 롤백
+            console.error(`Transaction failed and rolled back:`, error);
+            throw error;
         } finally {
             connection.release();
         }
@@ -73,20 +79,26 @@ export function init(server: http.Server) {
 
         // 방에 있는 클라이언트에게 메시지 전송
         socket.on("chat message", async ({ roomId, msg }: { roomId: number; msg: QuestionMessage }) => {
-            if (!chatRoomInfo) throw new Error("cannot access");
-            const answer = await chatService.askQuestion(msg.question);
+            try {
+                if (!chatRoomInfo) throw new Error("cannot access");
+                if (!msg) throw new Error("plz add msg");
+                const answer = await chatService.askQuestion(msg.question);
 
-            const answerMessage: AnswerMessage = {
-                sender: chatRoomInfo.chatRoomName,
-                answer: answer,
-            };
-            // 특정 방에 있는 모든 클라이언트에게 메시지 보내기
-            io.to(`room-${roomId}`).emit("chat message", { roomId, answerMessage: answerMessage });
-            await queue.add("save message", {
-                roomId,
-                userId: chatRoomInfo.userId,
-                question: answerMessage.answer,
-            });
+                const answerMessage: AnswerMessage = {
+                    sender: chatRoomInfo.chatRoomName,
+                    answer: answer,
+                };
+                // 특정 방에 있는 모든 클라이언트에게 메시지 보내기
+                io.to(`room-${roomId}`).emit("chat message", { roomId, answerMessage: answerMessage });
+                await queue.add("save message", {
+                    roomId,
+                    userId: chatRoomInfo.userId,
+                    question: msg.question,
+                    answer: answerMessage.answer,
+                });
+            } catch (err) {
+                io.to(`roomm-${roomId}`).emit("chat message", { err: "failed send message" });
+            }
         });
 
         socket.on("disconnect", () => {
