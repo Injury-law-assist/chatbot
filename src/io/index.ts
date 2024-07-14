@@ -4,8 +4,8 @@ import { Server, Socket } from "socket.io";
 import { Container } from "typedi";
 import ChatService from "../services/chat";
 import { AnswerMessage, QuestionMessage } from "../types/Message";
-import { Pool } from "mysql2/promise";
 import ChatRoomInfo from "../types/Chat";
+import Redis from "ioredis";
 
 export function init(server: http.Server) {
     const io = new Server(server, {
@@ -18,63 +18,35 @@ export function init(server: http.Server) {
     });
     const queue: Bull.Queue = Container.get("chatQueue");
     const chatService: ChatService = Container.get(ChatService);
-    const pool: Pool = Container.get("pool");
-
+    const redis = new Redis({
+        host: "redis",
+        port: 6379,
+    });
     queue.process("save message", async (job) => {
-        const { roomId, userId, question, answer } = job.data as { roomId: number; userId: number; question: string; answer: string };
-
-        const pool: Pool = Container.get("pool");
-        const connection = await pool.getConnection();
-
-        try {
-            await connection.beginTransaction(); // 트랜잭션 시작
-
-            // 메시지 데이터베이스에 저장
-            await connection.query(`INSERT INTO messages (cr_id, u_id, m_content) VALUES (?, ?, ?)`, [roomId, userId, question]);
-            await connection.query(`INSERT INTO messages (cr_id, u_id, m_content) VALUES (?, ?, ?)`, [roomId, userId, answer]);
-
-            await connection.commit(); // 성공 시 트랜잭션 커밋
-            console.log(`Message from room ${roomId} saved to database.`);
-        } catch (error) {
-            await connection.rollback(); // 실패 시 트랜잭션 롤백
-            console.error(`Transaction failed and rolled back:`, error);
-            throw error;
-        } finally {
-            connection.release();
-        }
+        const chatInfo = job.data as { roomId: number; userId: number; question: string; answer: string };
+        await chatService.createMessage({ chatInfo });
+        await redis.set(`room-${chatInfo.roomId}-previous-msg`, JSON.stringify({ question: chatInfo.question, answer: chatInfo.answer }));
     });
     io.on("connection", async (socket: Socket) => {
         let chatRoomInfo: ChatRoomInfo | null = null;
         console.log("user connected");
 
         // 클라이언트가 특정 방에 참가하도록 설정
+        /**
+         * 이전 대화 기록을 가지고 온다.
+         */
         socket.on("join room", async (roomId: number) => {
             socket.join(`room-${roomId}`);
             console.log(`Client ${socket.id} joined room ${roomId} `);
-
-            const connection = await pool.getConnection();
-            try {
-                const sql = `SELECT u.u_id, u_nickname, cr.title AS cr_name 
-                    FROM chatRooms cr, users u 
-                    WHERE cr.u_id = u.u_id AND cr.cr_id = ? 
-                    LIMIT 1`;
-                const [result] = (await connection.query(sql, [roomId])) as [{ u_id: number; cr_name: string; u_nickname: string }[], any];
-
-                if (result && result.length > 0) {
-                    const { u_id, cr_name, u_nickname } = result[0];
-                    chatRoomInfo = {
-                        userId: u_id,
-                        chatRoomName: cr_name,
-                        nickName: u_nickname,
-                    };
-                } else {
-                    console.error(`No chat room found for roomId ${roomId}`);
-                }
-            } catch (error) {
-                console.error("Error fetching chat room info:", error);
-            } finally {
-                connection.release();
-            }
+            const { u_id, cr_name, u_nickname } = await chatService.getChatRoomInfo({ roomId });
+            const previousMessage: { question: string; answer: string } = await chatService.getPreviousMessage({ roomId });
+            console.log(previousMessage);
+            await redis.set(`room-${roomId}-previous-msg`, JSON.stringify(previousMessage));
+            chatRoomInfo = {
+                userId: u_id,
+                chatRoomName: cr_name,
+                nickName: u_nickname,
+            };
         });
 
         // 방에 있는 클라이언트에게 메시지 전송
@@ -82,7 +54,9 @@ export function init(server: http.Server) {
             try {
                 if (!chatRoomInfo) throw new Error("cannot access");
                 if (!msg) throw new Error("plz add msg");
-                const answer = await chatService.askQuestion(msg.question);
+                const previousMessage: string | null = await redis.get(`room-${roomId}-previous-msg`);
+
+                const answer = await chatService.askQuestion(previousMessage, msg.question);
 
                 const answerMessage: AnswerMessage = {
                     sender: chatRoomInfo.chatRoomName,
@@ -97,7 +71,7 @@ export function init(server: http.Server) {
                     answer: answerMessage.answer,
                 });
             } catch (err) {
-                io.to(`roomm-${roomId}`).emit("chat message", { err: "failed send message" });
+                io.to(`room-${roomId}`).emit("chat message", { err: "failed send message" });
             }
         });
 
